@@ -1,0 +1,15 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Tajawal', system-ui, Tahoma, sans-serif;
+  background: #F6F5F1;
+}
+
+/* Hides the scrollbar on the horizontal jam'iya switcher while staying scrollable */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
