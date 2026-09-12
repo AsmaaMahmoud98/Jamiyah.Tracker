@@ -88,10 +88,7 @@ function getCyclePayments(jamiya, cycle, cycleIndex) {
 
       const loans = jamiya.loans || [];
       loans.forEach((loan) => {
-        if (Number(loan.borrowCycleIdx) === Number(cycleIndex)) {
-          if (h.memberId === loan.borrowerId) fullAmount += Number(loan.amount);
-          if (h.memberId === loan.lenderId) fullAmount -= Number(loan.amount);
-        }
+        // يتم تطبيق التعديل في شهر الرد فقط
         if (Number(loan.repayCycleIdx) === Number(cycleIndex)) {
           if (h.memberId === loan.borrowerId) fullAmount += Number(loan.amount);
           if (h.memberId === loan.lenderId) fullAmount -= Number(loan.amount);
@@ -374,7 +371,6 @@ function App() {
     setModal(null);
   }
 
-  // التبديل السريع لحالة استلام العضو المستحق للسهم
   function toggleMemberReceived(cycleId, memberId) {
     update((d) => {
       const j = d.jamiyas[activeId];
