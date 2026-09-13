@@ -88,7 +88,6 @@ function getCyclePayments(jamiya, cycle, cycleIndex) {
 
       const loans = jamiya.loans || [];
       loans.forEach((loan) => {
-        // يتم تطبيق التعديل في شهر الرد فقط
         if (Number(loan.repayCycleIdx) === Number(cycleIndex)) {
           if (h.memberId === loan.borrowerId) fullAmount += Number(loan.amount);
           if (h.memberId === loan.lenderId) fullAmount -= Number(loan.amount);
@@ -657,52 +656,14 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
 
   return (
     <div className="space-y-4">
+      {/* 1. الإحصائيات السريعة */}
       <div className="grid grid-cols-3 gap-2">
         <StatCard icon={<IconUsers size={16} />} label="الأعضاء" value={totalMembers} />
         <StatCard icon={<IconCoins size={16} />} label="الأسهَم" value={totalShares} />
         <StatCard icon={<IconClock size={16} />} label="أدوار متبقية" value={remaining} />
       </div>
 
-      {/* قسم السلفيات */}
-      <div className="bg-white rounded-2xl border border-[#EAE7DD] p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <IconRepeat className="text-[#CA9B3D]" size={18} />
-            <h3 className="font-bold text-sm text-[#1C2321]">نظام السلفيات بين الأعضاء</h3>
-          </div>
-          <Btn variant="ghost" onClick={onOpenLoanModal}>
-            <span className="flex items-center gap-1 text-xs"><IconPlus size={14} /> إضافة سلفة</span>
-          </Btn>
-        </div>
-
-        {loans.length === 0 ? (
-          <p className="text-xs text-[#5B6660] text-center py-2">لا توجد سلفيات مسجلة حالياً.</p>
-        ) : (
-          <div className="space-y-2">
-            {loans.map((loan) => {
-              const borrower = jamiya.members.find(m => m.id === loan.borrowerId);
-              const lender = jamiya.members.find(m => m.id === loan.lenderId);
-              return (
-                <div key={loan.id} className="bg-[#FBF9F3] p-2.5 rounded-lg border border-[#EAE7DD] flex items-center justify-between text-xs">
-                  <div>
-                    <p className="font-bold text-[#1C2321]">
-                      استلف <span className="text-[#145C4B]">{borrower ? borrower.name : '—'}</span> مبلغ <span className="text-[#CA9B3D]">{fmt(loan.amount)} {jamiya.currency}</span> من <span className="text-[#3D5A80]">{lender ? lender.name : '—'}</span>
-                    </p>
-                    <p className="text-[11px] text-[#5B6660] mt-0.5">
-                      شهر الاستلاف: {getMonthLabel(jamiya.startMonth, loan.borrowCycleIdx)} | شهر الرد: {getMonthLabel(jamiya.startMonth, loan.repayCycleIdx)}
-                    </p>
-                  </div>
-                  <button onClick={() => onDeleteLoan(loan.id)} className="p-1 text-[#B33A3A] hover:bg-[#FBEFEF] rounded">
-                    <IconTrash size={14} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* جدول التحصيل للشهر الجاري */}
+      {/* 2. جدول التحصيل للشهر الجاري (أولاً) */}
       {cycle ? (
         <div className="bg-white rounded-2xl border border-[#145C4B] p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3 border-b border-[#EAE7DD] pb-2">
@@ -724,11 +685,10 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
                 </p>
               </div>
 
-              {/* بطاقات الشركاء في السهم مع حساب المبلغ المستحق الفعلي ضرباً بنسبة المشاركة في المبلغ الإجمالي المطلوب تحصيله */}
+              {/* بطاقات الشركاء في السهم */}
               <div className="space-y-1.5 pt-1">
                 {recipientShare.holders.map((h) => {
                   const m = jamiya.members.find((mm) => mm.id === h.memberId);
-                  // التعديل الحسابي المطلوبة: ضرب نسبة العضو في السهم X المبلغ الإجمالي المطلوب تحصيله (due)
                   const actualShareAmount = (due * h.percentage) / 100;
                   const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
 
@@ -820,6 +780,45 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
           <p className="text-sm text-[#3E463F]">تم تسليم كافة الأدوار بالكامل 🎉</p>
         </div>
       )}
+
+      {/* 3. قسم السلفيات (أصبح الآن أسفل جدول الشهر الجاري) */}
+      <div className="bg-white rounded-2xl border border-[#EAE7DD] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <IconRepeat className="text-[#CA9B3D]" size={18} />
+            <h3 className="font-bold text-sm text-[#1C2321]">نظام السلفيات بين الأعضاء</h3>
+          </div>
+          <Btn variant="ghost" onClick={onOpenLoanModal}>
+            <span className="flex items-center gap-1 text-xs"><IconPlus size={14} /> إضافة سلفة</span>
+          </Btn>
+        </div>
+
+        {loans.length === 0 ? (
+          <p className="text-xs text-[#5B6660] text-center py-2">لا توجد سلفيات مسجلة حالياً.</p>
+        ) : (
+          <div className="space-y-2">
+            {loans.map((loan) => {
+              const borrower = jamiya.members.find(m => m.id === loan.borrowerId);
+              const lender = jamiya.members.find(m => m.id === loan.lenderId);
+              return (
+                <div key={loan.id} className="bg-[#FBF9F3] p-2.5 rounded-lg border border-[#EAE7DD] flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-bold text-[#1C2321]">
+                      استلف <span className="text-[#145C4B]">{borrower ? borrower.name : '—'}</span> مبلغ <span className="text-[#CA9B3D]">{fmt(loan.amount)} {jamiya.currency}</span> من <span className="text-[#3D5A80]">{lender ? lender.name : '—'}</span>
+                    </p>
+                    <p className="text-[11px] text-[#5B6660] mt-0.5">
+                      شهر الاستلاف: {getMonthLabel(jamiya.startMonth, loan.borrowCycleIdx)} | شهر الرد: {getMonthLabel(jamiya.startMonth, loan.repayCycleIdx)}
+                    </p>
+                  </div>
+                  <button onClick={() => onDeleteLoan(loan.id)} className="p-1 text-[#B33A3A] hover:bg-[#FBEFEF] rounded">
+                    <IconTrash size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1030,7 +1029,6 @@ function ScheduleTab({ jamiya, currentCycleIndex, expandedCycle, setExpandedCycl
                       {share.holders.map((h) => {
                         const m = jamiya.members.find((mm) => mm.id === h.memberId);
                         const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
-                        // تم أيضاً التحديث هنا لحساب المبلغ الفعلي المستحق تسليمه بناءً على إجمالي المبالغ المطلوبة في الدورة
                         const actualShareAmount = (due * h.percentage) / 100;
 
                         return (
