@@ -724,11 +724,12 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
                 </p>
               </div>
 
-              {/* بطاقات الشركاء في السهم بدون قائمة الموزعين مع زر الاستلام */}
+              {/* بطاقات الشركاء في السهم مع حساب المبلغ المستحق الفعلي ضرباً بنسبة المشاركة في المبلغ الإجمالي المطلوب تحصيله */}
               <div className="space-y-1.5 pt-1">
                 {recipientShare.holders.map((h) => {
                   const m = jamiya.members.find((mm) => mm.id === h.memberId);
-                  const shareAmount = (monthlyPot * h.percentage) / 100;
+                  // التعديل الحسابي المطلوبة: ضرب نسبة العضو في السهم X المبلغ الإجمالي المطلوب تحصيله (due)
+                  const actualShareAmount = (due * h.percentage) / 100;
                   const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
 
                   return (
@@ -738,7 +739,7 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
                           {m ? m.name : '—'} <span className="text-[11px] font-normal text-[#5B6660]">({h.percentage}%)</span>
                         </p>
                         <p className="text-xs font-bold text-[#145C4B] mt-0.5">
-                          المبلغ المستحق: {fmt(shareAmount)} {jamiya.currency}
+                          المبلغ المستحق الفعلي: {fmt(actualShareAmount)} {jamiya.currency}
                         </p>
                       </div>
 
@@ -1029,14 +1030,15 @@ function ScheduleTab({ jamiya, currentCycleIndex, expandedCycle, setExpandedCycl
                       {share.holders.map((h) => {
                         const m = jamiya.members.find((mm) => mm.id === h.memberId);
                         const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
-                        const amt = (pot * h.percentage) / 100;
+                        // تم أيضاً التحديث هنا لحساب المبلغ الفعلي المستحق تسليمه بناءً على إجمالي المبالغ المطلوبة في الدورة
+                        const actualShareAmount = (due * h.percentage) / 100;
 
                         return (
                           <div key={h.memberId} className="flex items-center justify-between text-xs bg-white p-1.5 rounded border border-[#EAE7DD]">
                             <div>
                               <span className="font-bold text-[#1C2321]">{m ? m.name : '—'}</span>
                               <span className="text-[10px] text-[#5B6660] mr-1">({h.percentage}%)</span>
-                              <p className="text-[11px] font-bold text-[#145C4B]">{fmt(amt)} {jamiya.currency}</p>
+                              <p className="text-[11px] font-bold text-[#145C4B]">المستحق الفعلي: {fmt(actualShareAmount)} {jamiya.currency}</p>
                             </div>
                             <button
                               onClick={() => onToggleReceived(cycle.id, h.memberId)}
