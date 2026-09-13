@@ -70,15 +70,19 @@ function clone(d) {
   return JSON.parse(JSON.stringify(d));
 }
 
-// حساب المبالغ والتحصيلات والسلفيات للدورة
+// حساب المبالغ والتحصيلات للغير فقط (المستلم مخصوم حصته من الإجمالي تلقائياً)[cite: 7]
 function getCyclePayments(jamiya, cycle, cycleIndex) {
   const items = [];
   
   const recipientShare = cycle.shareId ? jamiya.shares.find(s => s.id === cycle.shareId) : null;
   const recipientMemberIds = recipientShare ? recipientShare.holders.map(h => h.memberId) : [];
 
+  const processedLenders = new Set();
+  const processedBorrowers = new Set();
+
   jamiya.shares.forEach((share) => {
     share.holders.forEach((h) => {
+      // إستبعاد الأعضاء الشركاء في السهم المستلم لهذا الشهر من قائمة الدفع[cite: 7]
       if (recipientMemberIds.includes(h.memberId)) {
         return;
       }
@@ -89,8 +93,14 @@ function getCyclePayments(jamiya, cycle, cycleIndex) {
       const loans = jamiya.loans || [];
       loans.forEach((loan) => {
         if (Number(loan.repayCycleIdx) === Number(cycleIndex)) {
-          if (h.memberId === loan.borrowerId) fullAmount += Number(loan.amount);
-          if (h.memberId === loan.lenderId) fullAmount -= Number(loan.amount);
+          if (h.memberId === loan.borrowerId && !processedBorrowers.has(loan.borrowerId)) {
+            fullAmount += Number(loan.amount);
+            processedBorrowers.add(loan.borrowerId);
+          }
+          if (h.memberId === loan.lenderId && !processedLenders.has(loan.lenderId)) {
+            fullAmount -= Number(loan.amount);
+            processedLenders.add(loan.lenderId);
+          }
         }
       });
 
@@ -132,6 +142,59 @@ function getCyclePayments(jamiya, cycle, cycleIndex) {
   });
 
   return items;
+}
+
+// حساب تفاصيل استلام مستحق السهم بخصم نصيبه المباشر من الإجمالي الكلي للدور[cite: 7]
+function getSharePayoutDetails(jamiya, cycle, cycleIndex) {
+  if (!cycle || !cycle.shareId) return [];
+
+  const recipientShare = jamiya.shares.find((s) => s.id === cycle.shareId);
+  if (!recipientShare) return [];
+
+  const totalShares = jamiya.shares.length;
+  const totalPoolAmount = jamiya.monthlyShareAmount * totalShares;
+
+  const loans = jamiya.loans || [];
+  const processedLenders = new Set();
+  const processedBorrowers = new Set();
+
+  return recipientShare.holders.map((h) => {
+    const member = jamiya.members.find((m) => m.id === h.memberId);
+    
+    // الإجمالي الكلي المستحق لهذه الحصة في السهم[cite: 7]
+    const shareGrossTotal = totalPoolAmount * (h.percentage / 100);
+    // خصم سهم المستلم المباشر من الإجمالي بدلاً من تحصيله[cite: 7]
+    const ownMonthlyContribution = jamiya.monthlyShareAmount * (h.percentage / 100);
+    const netPoolAfterShareDeduction = shareGrossTotal - ownMonthlyContribution;
+
+    let netLoanAdjustment = 0;
+
+    loans.forEach((loan) => {
+      if (Number(loan.repayCycleIdx) === Number(cycleIndex)) {
+        if (h.memberId === loan.borrowerId && !processedBorrowers.has(loan.borrowerId)) {
+          netLoanAdjustment += Number(loan.amount);
+          processedBorrowers.add(loan.borrowerId);
+        }
+        if (h.memberId === loan.lenderId && !processedLenders.has(loan.lenderId)) {
+          netLoanAdjustment -= Number(loan.amount);
+          processedLenders.add(loan.lenderId);
+        }
+      }
+    });
+
+    const actualNetPayout = Math.max(0, netPoolAfterShareDeduction - netLoanAdjustment);
+
+    return {
+      memberId: h.memberId,
+      memberName: member ? member.name : '—',
+      percentage: h.percentage,
+      shareGrossTotal,
+      ownMonthlyContribution,
+      netPoolAfterShareDeduction,
+      netLoanAdjustment,
+      actualNetPayout
+    };
+  });
 }
 
 function holderPercentSum(holders) {
@@ -645,6 +708,10 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
   const recipientShare = cycle && cycle.shareId ? jamiya.shares.find((s) => s.id === cycle.shareId) : null;
   const loans = jamiya.loans || [];
 
+  const recipientHoldersCalculated = useMemo(() => {
+    return getSharePayoutDetails(jamiya, cycle, currentCycleIndex);
+  }, [jamiya, cycle, currentCycleIndex]);
+
   if (totalShares === 0) {
     return (
       <div className="text-center py-16 text-[#5B6660]">
@@ -663,7 +730,7 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
         <StatCard icon={<IconClock size={16} />} label="أدوار متبقية" value={remaining} />
       </div>
 
-      {/* 2. جدول التحصيل للشهر الجاري (أولاً) */}
+      {/* 2. جدول التحصيل للشهر الجاري */}
       {cycle ? (
         <div className="bg-white rounded-2xl border border-[#145C4B] p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3 border-b border-[#EAE7DD] pb-2">
@@ -687,19 +754,20 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
 
               {/* بطاقات الشركاء في السهم */}
               <div className="space-y-1.5 pt-1">
-                {recipientShare.holders.map((h) => {
-                  const m = jamiya.members.find((mm) => mm.id === h.memberId);
-                  const actualShareAmount = (due * h.percentage) / 100;
+                {recipientHoldersCalculated.map((h) => {
                   const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
 
                   return (
                     <div key={h.memberId} className="bg-white p-2.5 rounded-lg border border-[#EAE7DD] flex items-center justify-between">
                       <div>
                         <p className="text-xs font-bold text-[#1C2321]">
-                          {m ? m.name : '—'} <span className="text-[11px] font-normal text-[#5B6660]">({h.percentage}%)</span>
+                          {h.memberName} <span className="text-[11px] font-normal text-[#5B6660]">({h.percentage}%)</span>
                         </p>
                         <p className="text-xs font-bold text-[#145C4B] mt-0.5">
-                          المبلغ المستحق الفعلي: {fmt(actualShareAmount)} {jamiya.currency}
+                          الصافي المستحق للاستلام: {fmt(h.actualNetPayout)} {jamiya.currency}
+                        </p>
+                        <p className="text-[10px] text-[#5B6660]">
+                          (إجمالي الحصه: {fmt(h.shareGrossTotal)} - سهم مخصوم: {fmt(h.ownMonthlyContribution)})
                         </p>
                       </div>
 
@@ -729,7 +797,7 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
           <div className="mb-4">
             <div className="mb-1 flex justify-between text-xs text-[#5B6660]">
               <span>المحصل فعلياً: {fmt(collected)} {jamiya.currency}</span>
-              <span>الإجمالي المطلوب تحصيله: {fmt(due)} {jamiya.currency}</span>
+              <span>المطلوب تحصيله من الباقين: {fmt(due)} {jamiya.currency}</span>
             </div>
             <ProgressBar value={collected} max={due} color={jamiya.color} />
           </div>
@@ -781,7 +849,7 @@ function Overview({ jamiya, currentCycleIndex, onOpenPaymentModal, onToggleRecei
         </div>
       )}
 
-      {/* 3. قسم السلفيات (أصبح الآن أسفل جدول الشهر الجاري) */}
+      {/* 3. قسم السلفيات */}
       <div className="bg-white rounded-2xl border border-[#EAE7DD] p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -986,6 +1054,8 @@ function ScheduleTab({ jamiya, currentCycleIndex, expandedCycle, setExpandedCycl
         const isExpanded = expandedCycle === cycle.id || (expandedCycle === null && isCurrent);
         const assignedElsewhere = (shareId) => jamiya.cycles.some((c) => c.id !== cycle.id && c.shareId === shareId);
 
+        const recipientHoldersCalculated = getSharePayoutDetails(jamiya, cycle, idx);
+
         return (
           <div
             key={cycle.id}
@@ -1024,19 +1094,17 @@ function ScheduleTab({ jamiya, currentCycleIndex, expandedCycle, setExpandedCycl
 
                 {share && (
                   <div className="bg-[#F0EFE8] rounded-lg p-2.5 space-y-2">
-                    <p className="text-xs font-bold text-[#3E463F]">مبلغ الاستلام الكلي: {fmt(pot)} {jamiya.currency}</p>
+                    <p className="text-xs font-bold text-[#3E463F]">إجمالي الدور الكلي: {fmt(pot)} {jamiya.currency}</p>
                     <div className="space-y-1.5 border-t border-[#DCD8CE] pt-1.5">
-                      {share.holders.map((h) => {
-                        const m = jamiya.members.find((mm) => mm.id === h.memberId);
+                      {recipientHoldersCalculated.map((h) => {
                         const isReceived = !!(cycle.receivedStatus && cycle.receivedStatus[h.memberId]);
-                        const actualShareAmount = (due * h.percentage) / 100;
 
                         return (
                           <div key={h.memberId} className="flex items-center justify-between text-xs bg-white p-1.5 rounded border border-[#EAE7DD]">
                             <div>
-                              <span className="font-bold text-[#1C2321]">{m ? m.name : '—'}</span>
+                              <span className="font-bold text-[#1C2321]">{h.memberName}</span>
                               <span className="text-[10px] text-[#5B6660] mr-1">({h.percentage}%)</span>
-                              <p className="text-[11px] font-bold text-[#145C4B]">المستحق الفعلي: {fmt(actualShareAmount)} {jamiya.currency}</p>
+                              <p className="text-[11px] font-bold text-[#145C4B]">الصافي المستحق للاستلام: {fmt(h.actualNetPayout)} {jamiya.currency}</p>
                             </div>
                             <button
                               onClick={() => onToggleReceived(cycle.id, h.memberId)}
@@ -1058,8 +1126,8 @@ function ScheduleTab({ jamiya, currentCycleIndex, expandedCycle, setExpandedCycl
 
                 <div>
                   <div className="flex justify-between text-xs text-[#5B6660] mb-1">
-                    <span>التحصيل: {fmt(collected)} {jamiya.currency}</span>
-                    <span>{fmt(due)} {jamiya.currency}</span>
+                    <span>التحصيل من الباقين: {fmt(collected)} {jamiya.currency}</span>
+                    <span>المطلوب: {fmt(due)} {jamiya.currency}</span>
                   </div>
                   <ProgressBar value={collected} max={due} color={jamiya.color} />
                 </div>
